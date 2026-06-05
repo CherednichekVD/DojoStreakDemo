@@ -1,0 +1,8 @@
+{
+  "name": "DojoStreak",
+  "description": "Martial arts gamified streak tracker based on geolocation and schedule check-ins.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
