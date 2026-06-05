@@ -2,21 +2,15 @@ name: Android CI
 
 on:
   push:
-    branches: [ "main" ] # Поменяй на "master", если главная ветка называется так
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
-    # Если все файлы сборки (gradlew, build.gradle.kts) лежат в подпапке app, 
-    # эта строчка заставит GitHub Actions работать прямо внутри неё:
-    defaults:
-      run:
-        working-directory: ./app
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -24,14 +18,27 @@ jobs:
         distribution: 'temurin'
         cache: gradle
 
-    - name: Grant execute permission for gradlehw
-      run: chmod +x ./gradlew
+    # Скрипт сам найдет, где лежит gradlew (в корне или в подпапке app), и сделает его исполняемым
+    - name: Grant execute permission for gradlew
+      run: |
+        if [ -f "./gradlew" ]; then
+          chmod +x ./gradlew
+        elif [ -f "./app/gradlew" ]; then
+          chmod +x ./app/gradlew
+        fi
       
+    # Запуск сборки в зависимости от того, где лежит файл
     - name: Build with Gradle
-      run: ./gradlew assembleDebug
+      run: |
+        if [ -f "./gradlew" ]; then
+          ./gradlew assembleDebug
+        elif [ -f "./app/gradlew" ]; then
+          cd app && ./gradlew assembleDebug
+        fi
 
+    # Поиск готового APK и загрузка его в артефакты
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: DojoStreak-APK
+        path: "**/build/outputs/apk/debug/*.apk"
