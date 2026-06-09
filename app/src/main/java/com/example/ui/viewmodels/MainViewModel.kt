@@ -24,6 +24,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val userSettings: StateFlow<UserSettings?> = repository.userSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val currentGrowthStage: StateFlow<Int> = userSettings.map { settings ->
+        val streak = settings?.currentStreak ?: 0
+        when {
+            streak >= 30 -> 5
+            streak >= 15 -> 4
+            streak >= 10 -> 3
+            streak >= 5 -> 2
+            else -> 1
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1)
+
     private val _currentLocation = MutableStateFlow<Location?>(null)
     val currentLocation: StateFlow<Location?> = _currentLocation
 
@@ -32,6 +43,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isLocationValid = MutableStateFlow(false)
     val isLocationValid: StateFlow<Boolean> = _isLocationValid
+
+    private val _locationStatusMsg = MutableStateFlow<String>("Ожидание получения локации...")
+    val locationStatusMsg: StateFlow<String> = _locationStatusMsg
 
     private val _nextTrainingSummary = MutableStateFlow<String?>(null)
     val nextTrainingSummary: StateFlow<String?> = _nextTrainingSummary
@@ -50,8 +64,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun fetchLocation() {
+        _locationStatusMsg.value = "Поиск координат GPS..."
         viewModelScope.launch {
+            if (!locationTracker.isLocationEnabled()) {
+                _locationStatusMsg.value = "Геопозиция (GPS) ВЫКЛЮЧЕНА. Пожалуйста, включите её."
+                _currentLocation.value = null
+                evaluateConditions(userSettings.value, null)
+                return@launch
+            }
+
             val loc = locationTracker.getCurrentLocation()
+            if (loc != null) {
+                _locationStatusMsg.value = "Локация найдена!"
+            } else {
+                _locationStatusMsg.value = "Доступ к геопозиции получен, ожидание сигнала GPS..."
+            }
             _currentLocation.value = loc
             evaluateConditions(userSettings.value, loc)
         }
@@ -63,7 +90,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val now = LocalDateTime.now()
         val schedules = ScheduleParser.parse(settings.scheduleCsv)
         val gyms = allGyms.value
-        
+
         // Check if missed schedule
         if (settings.lastCheckInMillis > 0) {
             val lastCheckInTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(settings.lastCheckInMillis), ZoneId.systemDefault())
@@ -72,21 +99,69 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Validate current time & location across all gyms
         val activeTime = CheckInValidator.isAnyTimeValid(now, schedules)
         _isTimeValid.value = activeTime
 
-        if (loc != null && activeTime) {
-            _isLocationValid.value = CheckInValidator.validateCheckIn(now, loc, schedules, gyms)
+        if (loc != null) {
+            var atAnyGym = false
+
+            // Check if at *any* gym for the UI indicator "At Dojo Location"
+            for (schedule in schedules) {
+                 val gym = gyms.find { it.id == schedule.gymId } ?: continue
+                 if (CheckInValidator.isLocationValid(loc, gym)) {
+                     atAnyGym = true
+                 }
+            }
+
+            _isLocationValid.value = atAnyGym
+            
+            var debugStr = "Локация найдена!\nОтладка GPS:\n"
+            debugStr += "- Пользователь: ${"%.6f".format(loc.latitude)}, ${"%.6f".format(loc.longitude)}\n"
+
+            var minDistance = Float.MAX_VALUE
+            var closestGym: Gym? = null
+            
+            // We want to check against the currently active gym first
+            val activeTimeSchedules = schedules.filter { CheckInValidator.isTimeValidForSchedule(now, it) }
+            val gymsToCheck = if (activeTimeSchedules.isNotEmpty()) {
+                val activeIds = activeTimeSchedules.map { it.gymId }
+                gyms.filter { it.id in activeIds }
+            } else {
+                val userGymIds = schedules.map { it.gymId }.distinct()
+                gyms.filter { it.id in userGymIds }
+            }
+            
+            for (gym in gymsToCheck) {
+                 val dist = CheckInValidator.calculateDistance(loc, gym)
+                 if (dist < minDistance) {
+                     minDistance = dist
+                     closestGym = gym
+                 }
+            }
+
+            if (closestGym != null) {
+                 debugStr += "- Зал: ${"%.6f".format(closestGym.latitude)}, ${"%.6f".format(closestGym.longitude)}\n"
+                 val threshold = closestGym.radiusMeters + 50f
+                 debugStr += "- Рассчитанная дистанция: ${minDistance.toInt()} метров (Допуск: ${threshold.toInt()}м)"
+            } else {
+                 debugStr += "- Активные залы не выбраны."
+            }
+            
+            _locationStatusMsg.value = debugStr
+            
         } else {
             _isLocationValid.value = false
+            // Keep the previous message if it's about GPS being off
+            if (!_locationStatusMsg.value.contains("ВЫКЛЮЧЕНА")) {
+                _locationStatusMsg.value = "Доступ к геопозиции получен, ожидание сигнала GPS..."
+            }
         }
         
         _nextTrainingSummary.value = calculateNextTraining(now, schedules, gyms)
     }
 
     private fun calculateNextTraining(now: LocalDateTime, schedules: List<DailySchedule>, gyms: List<Gym>): String? {
-        if (schedules.isEmpty()) return "No schedules set up."
+        if (schedules.isEmpty()) return "Расписание не настроено."
         
         var minDiff = Long.MAX_VALUE
         var nextGymName = ""
@@ -113,18 +188,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (totalDiffMin < minDiff) {
                 minDiff = totalDiffMin
                 val gym = gyms.find { it.id == schedule.gymId }
-                nextGymName = gym?.name ?: "Unknown Gym"
+                nextGymName = gym?.name ?: "Неизвестный зал"
                 val formatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
                 nextTimeStr = schedule.startTime.format(formatter)
-                nextDayStr = schedule.dayOfWeek.name.take(3)
+                nextDayStr = when (schedule.dayOfWeek) {
+                    java.time.DayOfWeek.MONDAY -> "ПН"
+                    java.time.DayOfWeek.TUESDAY -> "ВТ"
+                    java.time.DayOfWeek.WEDNESDAY -> "СР"
+                    java.time.DayOfWeek.THURSDAY -> "ЧТ"
+                    java.time.DayOfWeek.FRIDAY -> "ПТ"
+                    java.time.DayOfWeek.SATURDAY -> "СБ"
+                    java.time.DayOfWeek.SUNDAY -> "ВС"
+                }
             }
         }
         
         if (minDiff == Long.MAX_VALUE) return null
         return if (minDiff < 24 * 60) {
-           "Next: Today at $nextTimeStr in $nextGymName"
+           "Следующая: Сегодня в $nextTimeStr, $nextGymName"
         } else {
-           "Next: $nextDayStr at $nextTimeStr in $nextGymName"
+           "Следующая: $nextDayStr в $nextTimeStr, $nextGymName"
         }
     }
 

@@ -10,6 +10,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,15 +28,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.R
 import com.example.logic.CheckInValidator
 import com.example.data.UserSettings
 import com.example.ui.viewmodels.MainViewModel
@@ -47,9 +53,11 @@ fun HomeScreen(
     onNavigateToSetup: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val isTimeValid by viewModel.isTimeValid.collectAsState()
     val isLocationValid by viewModel.isLocationValid.collectAsState()
     val currentLocation by viewModel.currentLocation.collectAsState()
+    val locationStatusMsg by viewModel.locationStatusMsg.collectAsState()
 
     var showPermissionDialog by remember { mutableStateOf(false) }
     var locationPermissionGranted by remember { 
@@ -71,25 +79,41 @@ fun HomeScreen(
         }
     }
 
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                              ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                locationPermissionGranted = granted
+                if (granted) {
+                    showPermissionDialog = false
+                    viewModel.fetchLocation()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     LaunchedEffect(Unit) {
         if (!locationPermissionGranted) {
             locationPermissionLauncher.launch(arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ))
-        } else {
-            viewModel.fetchLocation()
         }
     }
 
     if (showPermissionDialog) {
         AlertDialog(
             onDismissRequest = { showPermissionDialog = false },
-            title = { Text("Permission Denied") },
-            text = { Text("Location permission is required to verify your check-ins at the dojo. Please enable it in the app settings.") },
+            title = { Text("В доступе отказано") },
+            text = { Text("Для подтверждения посещения зала требуется разрешение на доступ к геопозиции. Пожалуйста, включите его в настройках приложения.") },
             confirmButton = {
                 TextButton(onClick = { showPermissionDialog = false }) {
-                    Text("OK")
+                    Text("ОК")
                 }
             }
         )
@@ -117,6 +141,7 @@ fun HomeScreen(
     val canCheckIn = isTimeValid && isLocationValid && !isOnCooldown
 
     val nextTrainingSummary by viewModel.nextTrainingSummary.collectAsState()
+    val currentGrowthStage by viewModel.currentGrowthStage.collectAsState()
 
     Column(
         modifier = Modifier
@@ -140,7 +165,7 @@ fun HomeScreen(
 
         // Streak Flame Visual
         Box(modifier = Modifier.scale(scale)) {
-            StreakCounterVisual(streak = userSettings.currentStreak)
+            StreakCounterVisual(streak = userSettings.currentStreak, stage = currentGrowthStage)
         }
 
         Spacer(modifier = Modifier.height(32.dp))
@@ -156,19 +181,19 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "Training Status",
+                    text = "Статус тренировки",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
                 StatusRow(
-                    label = "Scheduled Time Context",
+                    label = "Время по расписанию",
                     isValid = isTimeValid
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 StatusRow(
-                    label = "At Dojo Location",
+                    label = "Нахождение в зале",
                     isValid = isLocationValid
                 )
 
@@ -189,13 +214,13 @@ fun HomeScreen(
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                     )
                 ) {
-                    Text(if (canCheckIn) "Check-In!" else "Check-In Unavailable", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(if (canCheckIn) "Отметиться" else "Отметка недоступна", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
 
                 if (isOnCooldown) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "You have already checked in recently. Next check-in available in ~${remainingHours} hours.",
+                        text = "Вы уже отмечались недавно. Следующая отметка доступна примерно через ${remainingHours} ч.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center
@@ -203,27 +228,31 @@ fun HomeScreen(
                 } else if (!isTimeValid || !isLocationValid) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = when {
-                            !isTimeValid && !isLocationValid -> "No training scheduled right now, and you are not at a selected gym."
-                            !isTimeValid -> "No training scheduled at this time."
-                            else -> "You are not at the scheduled gym."
-                        },
+                        text = if (!isTimeValid) "Сейчас нет запланированных тренировок." else "Вы находитесь не в зале по расписанию.",
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center
                     )
-
-                    if (nextTrainingSummary != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = nextTrainingSummary!!,
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            textAlign = TextAlign.Center
-                        )
-                    }
                 }
+
+                if (!canCheckIn && nextTrainingSummary != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = nextTrainingSummary!!,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = locationStatusMsg,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center
+                )
             }
         }
 
@@ -239,15 +268,15 @@ fun HomeScreen(
                 viewModel.fetchLocation() 
             }
         }) {
-            Icon(Icons.Filled.Refresh, contentDescription = "Refresh Location")
+            Icon(Icons.Filled.Refresh, contentDescription = "Обновить локацию")
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Refresh GPS")
+            Text("Обновить GPS")
         }
 
         Spacer(modifier = Modifier.height(24.dp))
         
         TextButton(onClick = onNavigateToSetup) {
-            Text("Edit Dojo & Schedule")
+            Text("Изменить зал и расписание")
         }
     }
 }
@@ -269,32 +298,39 @@ fun StatusRow(label: String, isValid: Boolean) {
 }
 
 @Composable
-fun StreakCounterVisual(streak: Int) {
+fun StreakCounterVisual(streak: Int, stage: Int) {
     val primaryColor = if (streak > 0) Color(0xFFFF5722) else Color(0xFFBDBDBD)
     
-    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawArc(
-                color = primaryColor,
-                startAngle = -90f,
-                sweepAngle = 360f,
-                useCenter = false,
-                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = streak.toString(),
-                style = MaterialTheme.typography.displayLarge,
-                fontWeight = FontWeight.Bold,
-                color = primaryColor
-            )
-            Text(
-                text = "DAY STREAK",
-                style = MaterialTheme.typography.labelLarge,
-                letterSpacing = 2.sp,
-                color = primaryColor
-            )
-        }
+    val flameResId = when (stage) {
+        5 -> R.drawable.ic_flame_stage5
+        4 -> R.drawable.ic_flame_stage4
+        3 -> R.drawable.ic_flame_stage3
+        2 -> R.drawable.ic_flame_stage2
+        else -> R.drawable.ic_flame_stage1
+    }
+    
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Image(
+            painter = painterResource(id = flameResId),
+            contentDescription = "Уровень роста (Stage $stage)",
+            modifier = Modifier.size(160.dp),
+            contentScale = ContentScale.Fit,
+            colorFilter = if (streak == 0) ColorFilter.tint(Color.Gray) else null
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = streak.toString(),
+            style = MaterialTheme.typography.displayLarge,
+            fontWeight = FontWeight.Bold,
+            color = primaryColor
+        )
+        Text(
+            text = "ДНЕЙ ПОДРЯД",
+            style = MaterialTheme.typography.labelLarge,
+            letterSpacing = 2.sp,
+            color = primaryColor
+        )
     }
 }

@@ -9,16 +9,20 @@ import java.time.DayOfWeek
 
 object CheckInValidator {
     
-    // Check if the given location is within the gym's radius
-    fun isLocationValid(currentLocation: Location?, gym: Gym): Boolean {
-        if (currentLocation == null) return false
-        
+    fun calculateDistance(currentLocation: Location?, gym: Gym): Float {
+        if (currentLocation == null) return Float.MAX_VALUE
         val gymLocation = Location("").apply {
             latitude = gym.latitude
             longitude = gym.longitude
         }
-        val distance = currentLocation.distanceTo(gymLocation)
-        return distance <= gym.radiusMeters
+        return currentLocation.distanceTo(gymLocation)
+    }
+
+    // Check if the given location is within the gym's radius
+    fun isLocationValid(currentLocation: Location?, gym: Gym, toleranceMeters: Float = 50f): Boolean {
+        if (currentLocation == null) return false
+        val distance = calculateDistance(currentLocation, gym)
+        return distance <= (gym.radiusMeters + toleranceMeters)
     }
 
     // Check if any scheduled time is valid across all schedules
@@ -26,7 +30,7 @@ object CheckInValidator {
         return schedules.any { isTimeValidForSchedule(now, it, bufferMinutes) }
     }
 
-    private fun isTimeValidForSchedule(now: LocalDateTime, schedule: DailySchedule, bufferMinutes: Long = 15): Boolean {
+    fun isTimeValidForSchedule(now: LocalDateTime, schedule: DailySchedule, bufferMinutes: Long = 15): Boolean {
         if (schedule.dayOfWeek != now.dayOfWeek) return false
         val currentMinutes = now.toLocalTime().toSecondOfDay() / 60
         val startMinutes = schedule.startTime.toSecondOfDay() / 60 - bufferMinutes

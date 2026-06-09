@@ -49,13 +49,13 @@ fun SetupScreen(
             .verticalScroll(rememberScrollState())
     ) {
         Text(
-            text = "Setup Your Training",
+            text = "Настройка тренировок",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(vertical = 16.dp)
         )
 
-        Text("Select Dojos & Add Schedules", style = MaterialTheme.typography.titleMedium)
+        Text("Выберите залы и добавьте расписание", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         
         Column(
@@ -88,7 +88,7 @@ fun SetupScreen(
                 .fillMaxWidth()
                 .height(56.dp)
         ) {
-            Text("Save & Start Streak", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text("Сохранить и продолжить", fontSize = 16.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -129,9 +129,18 @@ fun GymScheduleCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("${schedule.dayOfWeek.name.take(3)} at ${schedule.startTime.format(formatter)}", style = MaterialTheme.typography.bodyMedium)
+                        val dayStr = when(schedule.dayOfWeek) {
+                            DayOfWeek.MONDAY -> "ПН"
+                            DayOfWeek.TUESDAY -> "ВТ"
+                            DayOfWeek.WEDNESDAY -> "СР"
+                            DayOfWeek.THURSDAY -> "ЧТ"
+                            DayOfWeek.FRIDAY -> "ПТ"
+                            DayOfWeek.SATURDAY -> "СБ"
+                            DayOfWeek.SUNDAY -> "ВС"
+                        }
+                        Text("$dayStr в ${schedule.startTime.format(formatter)}", style = MaterialTheme.typography.bodyMedium)
                         IconButton(onClick = { onRemoveSchedule(schedule) }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Delete Schedule", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
+                            Icon(Icons.Filled.Delete, contentDescription = "Удалить расписание", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -142,13 +151,24 @@ fun GymScheduleCard(
                 HorizontalDivider()
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                Text("Select Day", style = MaterialTheme.typography.labelLarge)
+                Text("Выберите день", style = MaterialTheme.typography.labelLarge)
                 Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.SpaceBetween) {
                      DayOfWeek.values().take(4).forEach { day ->
                         FilterChip(
                             selected = selectedDay == day,
                             onClick = { selectedDay = day },
-                            label = { Text(day.name.take(3), fontSize = 12.sp) }
+                            label = { 
+                                val dayStr = when(day) {
+                                    DayOfWeek.MONDAY -> "ПН"
+                                    DayOfWeek.TUESDAY -> "ВТ"
+                                    DayOfWeek.WEDNESDAY -> "СР"
+                                    DayOfWeek.THURSDAY -> "ЧТ"
+                                    DayOfWeek.FRIDAY -> "ПТ"
+                                    DayOfWeek.SATURDAY -> "СБ"
+                                    DayOfWeek.SUNDAY -> "ВС"
+                                }
+                                Text(dayStr, fontSize = 12.sp) 
+                            }
                         )
                     }
                 }
@@ -157,13 +177,24 @@ fun GymScheduleCard(
                         FilterChip(
                             selected = selectedDay == day,
                             onClick = { selectedDay = day },
-                            label = { Text(day.name.take(3), fontSize = 12.sp) }
+                            label = { 
+                                val dayStr = when(day) {
+                                    DayOfWeek.MONDAY -> "ПН"
+                                    DayOfWeek.TUESDAY -> "ВТ"
+                                    DayOfWeek.WEDNESDAY -> "СР"
+                                    DayOfWeek.THURSDAY -> "ЧТ"
+                                    DayOfWeek.FRIDAY -> "ПТ"
+                                    DayOfWeek.SATURDAY -> "СБ"
+                                    DayOfWeek.SUNDAY -> "ВС"
+                                }
+                                Text(dayStr, fontSize = 12.sp) 
+                            }
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Class Start Time", style = MaterialTheme.typography.labelLarge)
+                Text("Время начала тренировки", style = MaterialTheme.typography.labelLarge)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Button(onClick = { classTime = LocalTime.of(7, 0) }, colors = timeButtonColors(classTime == LocalTime.of(7,0))) { Text("07:00") }
                     Button(onClick = { classTime = LocalTime.of(12, 0) }, colors = timeButtonColors(classTime == LocalTime.of(12,0))) { Text("12:00") }
@@ -178,11 +209,11 @@ fun GymScheduleCard(
                     },
                     modifier = Modifier.align(Alignment.End)
                 ) {
-                    Icon(Icons.Filled.Add, "Add")
-                    Text("Add Slot")
+                    Icon(Icons.Filled.Add, "Добавить")
+                    Text("Добавить")
                 }
             } else if (gymSchedules.isEmpty()) {
-                Text("Tap to add schedules", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 8.dp))
+                Text("Нажмите, чтобы добавить расписание", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(top = 8.dp))
             }
         }
     }
