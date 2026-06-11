@@ -6,6 +6,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Add
@@ -93,6 +95,7 @@ fun SetupScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun GymScheduleCard(
     gym: Gym,
@@ -195,10 +198,20 @@ fun GymScheduleCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Время начала тренировки", style = MaterialTheme.typography.labelLarge)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Button(onClick = { classTime = LocalTime.of(7, 0) }, colors = timeButtonColors(classTime == LocalTime.of(7,0))) { Text("07:00") }
-                    Button(onClick = { classTime = LocalTime.of(12, 0) }, colors = timeButtonColors(classTime == LocalTime.of(12,0))) { Text("12:00") }
-                    Button(onClick = { classTime = LocalTime.of(18, 0) }, colors = timeButtonColors(classTime == LocalTime.of(18,0))) { Text("18:00") }
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    (12..22).forEach { hour ->
+                        val time = LocalTime.of(hour, 0)
+                        Button(
+                            onClick = { classTime = time },
+                            colors = timeButtonColors(classTime == time)
+                        ) {
+                            Text(String.format("%02d:00", hour))
+                        }
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(16.dp))
